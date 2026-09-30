@@ -1,3 +1,54 @@
+# Keploy fork of gopkg.in/yaml.v3
+
+This fork exists for one bug fix. It is gopkg.in/yaml.v3 v3.0.1 (the
+archived [go-yaml/yaml](https://github.com/go-yaml/yaml), branch `v3`)
+plus commit
+[4d4399b](https://github.com/keploy/yaml/commit/4d4399ba5dc400a34e3294073ac676d3415ee42b),
+which reuses the emitter's event queue once it drains. Nothing else
+differs, and the encoder writes the same bytes as v3.0.1.
+
+**The bug.** `yaml_emitter_emit` never reuses the queue slots of events
+it has already written. The queue grows by one slot per event for the
+life of the emitter:
+
+- Every `Marshal` or `Encoder.Encode` allocates memory in proportion to
+  the number of events in the document.
+- A long-lived `Encoder` keeps growing across documents.
+
+**The effect on Keploy.** On a recorded 27.4 KB mock:
+
+| | CPU | allocated | GC share of CPU |
+|---|---|---|---|
+| v3.0.1 | 0.89 to 0.91 ms | 1,491 KB | 31% |
+| this fork | 0.51 to 0.55 ms | 63.5 KB | 3 to 4% |
+
+The output was byte-identical (the same sha256) across 146,862 real
+mocks.
+
+**Upstream.** The fix is proposed to the maintained successor,
+go.yaml.in/yaml, in
+[yaml/go-yaml#432](https://github.com/yaml/go-yaml/pull/432). Drop this
+fork once the fix ships in a module Keploy can use.
+
+## Using it
+
+The module path stays `gopkg.in/yaml.v3`, so use the fork through a
+replace directive, and keep the `require gopkg.in/yaml.v3 v3.0.1` line
+as it is:
+
+```
+replace gopkg.in/yaml.v3 => github.com/keploy/yaml v0.0.0-20260930140430-4d4399ba5dc4
+```
+
+- **Put it in each binary's go.mod.** Replace directives apply only in
+  the main module, so a replace in a library's go.mod does not reach the
+  programs that import it.
+- **Keep the fix commit reachable.** `v3-keploy`, the default branch,
+  holds it. Do not rewrite or delete the branch, or builds with
+  `GOPROXY=direct` can no longer fetch the pinned commit.
+
+---
+
 # THIS PROJECT IS UNMAINTAINED
 
 This was one of my first Go projects, bootstapped over the christmas break of 2010 and well maintained for over a decade, often with help from contributors. Sadly, in the last few years my own free time, both personal and professional, became less common, and none of the contributions turned into more extensive long term engagements. I was hoping to address the situation by moving it into a dedicated professional team at a more resourceful home such as Canonical, Google, etc, but that hasn't materialized in time either.  So I'm now taking the more explicit action of clearly labeling the project as unmaintained, to inform the community of what should already be obvious by now.
