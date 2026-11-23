@@ -1852,8 +1852,28 @@ func yaml_emitter_write_double_quoted_scalar(emitter *yaml_emitter_t, value []by
 }
 
 func yaml_emitter_write_block_scalar_hints(emitter *yaml_emitter_t, value []byte) bool {
-	if is_space(value, 0) || is_break(value, 0) {
-		indent_hint := []byte{'0' + byte(emitter.best_indent)}
+	// A tab is leading white space too: without an indicator the content's
+	// indentation would be read as running into the tab, which is refused.
+	if is_blank(value, 0) || is_break(value, 0) {
+		// The indentation indicator is the content's indentation counted from
+		// the parent node's, which is what a parser adds it to -- not
+		// best_indent. increase_indent rounds the content's indentation up to
+		// a multiple of best_indent, so under a parent that is not on one (a
+		// mapping inside a sequence item sits two columns past it) the content
+		// is less than best_indent deeper, and an indicator of best_indent
+		// named a column the content is not at: the document did not parse.
+		parent := 0
+		if n := len(emitter.indents); n > 0 && emitter.indents[n-1] > 0 {
+			parent = emitter.indents[n-1]
+		}
+		offset := emitter.indent - parent
+		if offset < 1 || offset > 9 {
+			// An indicator is one digit, 1 to 9: indent the content by
+			// best_indent (2 to 9) from the parent instead.
+			offset = emitter.best_indent
+			emitter.indent = parent + offset
+		}
+		indent_hint := []byte{'0' + byte(offset)}
 		if !yaml_emitter_write_indicator(emitter, indent_hint, false, false, false) {
 			return false
 		}
@@ -1903,6 +1923,15 @@ func yaml_emitter_write_literal_scalar(emitter *yaml_emitter_t, value []byte) bo
 	if !yaml_emitter_process_line_comment(emitter) {
 		return false
 	}
+	// A value that starts with a line break: end the header line here, so
+	// the break is the content's first line. Left to the loop below, the
+	// break ended the header line instead, and the value lost it. A line
+	// comment on the header has ended it already (write_comment breaks).
+	if is_break(value, 0) && !emitter.indention {
+		if !put_break(emitter) {
+			return false
+		}
+	}
 	//emitter.indention = true
 	emitter.whitespace = true
 	breaks := true
@@ -1940,6 +1969,15 @@ func yaml_emitter_write_folded_scalar(emitter *yaml_emitter_t, value []byte) boo
 	if !yaml_emitter_process_line_comment(emitter) {
 		return false
 	}
+	// A value that starts with a line break: end the header line here, so
+	// the break is the content's first line. Left to the loop below, the
+	// break ended the header line instead, and the value lost it. A line
+	// comment on the header has ended it already (write_comment breaks).
+	if is_break(value, 0) && !emitter.indention {
+		if !put_break(emitter) {
+			return false
+		}
+	}
 
 	//emitter.indention = true
 	emitter.whitespace = true
@@ -1949,11 +1987,13 @@ func yaml_emitter_write_folded_scalar(emitter *yaml_emitter_t, value []byte) boo
 	for i := 0; i < len(value); {
 		if is_break(value, i) {
 			if !breaks && !leading_spaces && value[i] == '\n' {
-				k := 0
-				for is_break(value, k) {
+				// Look past the breaks that follow THIS one (libyaml advances
+				// its pointer here; from 0 this looked at the value's start).
+				k := i
+				for k < len(value) && is_break(value, k) {
 					k += width(value[k])
 				}
-				if !is_blankz(value, k) {
+				if k < len(value) && !is_blankz(value, k) {
 					if !put_break(emitter) {
 						return false
 					}

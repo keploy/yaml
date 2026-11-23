@@ -1,11 +1,16 @@
 # Keploy fork of gopkg.in/yaml.v3
 
-This fork exists for one bug fix. It is gopkg.in/yaml.v3 v3.0.1 (the
-archived [go-yaml/yaml](https://github.com/go-yaml/yaml), branch `v3`)
-plus commit
-[4d4399b](https://github.com/keploy/yaml/commit/4d4399ba5dc400a34e3294073ac676d3415ee42b),
-which reuses the emitter's event queue once it drains. Nothing else
-differs, and the encoder writes the same bytes as v3.0.1.
+This fork is gopkg.in/yaml.v3 v3.0.1 (the archived
+[go-yaml/yaml](https://github.com/go-yaml/yaml), branch `v3`) plus two
+emitter fixes:
+
+1. Commit
+   [4d4399b](https://github.com/keploy/yaml/commit/4d4399ba5dc400a34e3294073ac676d3415ee42b)
+   reuses the emitter's event queue once it drains. Output is
+   byte-identical; see below.
+2. Block scalars (`|`, `>`) that v3.0.1 wrote unreadable or wrong (see
+   [Block scalars](#block-scalars)). Only those values' bytes differ from
+   v3.0.1.
 
 **The bug.** `yaml_emitter_emit` never reuses the queue slots of events
 it has already written. The queue grows by one slot per event for the
@@ -210,4 +215,41 @@ b:
   - 3
   - 4
 ```
+
+## Block scalars
+
+v3.0.1 wrote these wrong, and Keploy writes recorded bodies (an HTML error
+page starts with a line break) through them:
+
+- **The indentation indicator was always `best_indent`.** The content's
+  indentation is rounded up to a multiple of `best_indent`, and under a
+  mapping inside a sequence item it lands two columns short of that: `|4`
+  over content two columns in, which does not parse ("did not find
+  expected key"). The indicator is now the content's indentation counted
+  from the parent node's.
+- **A value starting with a line break lost it.** The header line was never
+  ended, so the value's first break ended it. It is now ended first (unless
+  a line comment on the header already did).
+- **A value starting with a tab got no indicator**, and the decoder refused
+  the document ("found a tab character where an indentation space is
+  expected"). It now gets one.
+- **Folded (`>`) look-ahead started at the value's start** instead of the
+  current line break, adding blank lines. It now starts at the break, as
+  libyaml's does.
+
+Bytes that differ from v3.0.1, all for values written as block scalars:
+
+- Values starting with a space, tab or line break: every one of these failed
+  to parse or to round-trip before.
+- Folded values ending in a single line break: v3.0.1 wrote a trailing blank
+  line that clip chomping stripped on read; it is no longer written. Same
+  value read back. `Marshal` never picks folded style; a `yaml.Node` with
+  `FoldedStyle` (a re-encoded `>` block) does.
+- Folded values with a space- or tab-led line after a line break, or ending
+  in two or more line breaks: v3.0.1 inserted a blank line, which changed the
+  value read back.
+- A value that is only line breaks, under a sequence item (or a mapping in
+  one), with a header comment, can get a different indicator digit at
+  SetIndent 3-9 (e.g. `|3+` to `|2+`). There is no content line, so it reads
+  back the same.
 
