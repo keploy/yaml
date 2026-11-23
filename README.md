@@ -42,7 +42,7 @@ replace directive, and keep the `require gopkg.in/yaml.v3 v3.0.1` line
 as it is:
 
 ```
-replace gopkg.in/yaml.v3 => github.com/keploy/yaml v0.0.0-20260930140430-4d4399ba5dc4
+replace gopkg.in/yaml.v3 => github.com/keploy/yaml v0.0.0-20261123121504-5aa603cfb02f
 ```
 
 - **Put it in each binary's go.mod.** Replace directives apply only in
